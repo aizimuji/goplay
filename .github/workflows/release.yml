@@ -11,6 +11,10 @@ on:
         required: true
         default: 'v0.0.1-manual'
 
+permissions:
+  contents: write
+
+
 jobs:
   build:
     name: Build matrix
