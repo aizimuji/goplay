@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag name for release (e.g. v1.0.0)'
+        required: true
+        default: 'v0.0.1-manual'
 
 jobs:
   build:
@@ -28,7 +33,7 @@ jobs:
           CGO_ENABLED: 0
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-          VERSION: ${{ github.ref_name }}
+          VERSION: ${{ inputs.tag_name || github.ref_name }}
         run: |
           set -euo pipefail
           echo "Building for ${GOOS}-${GOARCH}"
@@ -46,9 +51,9 @@ jobs:
               platform=$(basename "$d")
               cd "$d"
               if [[ "$platform" == *windows* ]]; then
-                zip -r "../goplay-${{ github.ref_name }}-${platform}.zip" *
+                zip -r "../goplay-${{ inputs.tag_name || github.ref_name }}-${platform}.zip" *
               else
-                tar -czf "../goplay-${{ github.ref_name }}-${platform}.tar.gz" *
+                tar -czf "../goplay-${{ inputs.tag_name || github.ref_name }}-${platform}.tar.gz" *
               fi
               cd - >/dev/null
             fi
@@ -77,6 +82,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: dist/**/*
+          tag_name: ${{ inputs.tag_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
