@@ -35,7 +35,7 @@ jobs:
           mkdir -p dist/${GOOS}-${GOARCH}
           BINARY_NAME="goplay"
           if [ "${GOOS}" = "windows" ]; then BINARY_NAME="${BINARY_NAME}.exe"; fi
-          go build -ldflags "-s -w -X main.version=${VERSION}" -o "dist/${GOOS}-${GOARCH}/${BINARY_NAME}" ./...
+          go build -ldflags "-s -w -X main.version=${VERSION}" -o "dist/${GOOS}-${GOARCH}/${BINARY_NAME}" .
           if [ "${GOOS}" != "windows" ]; then chmod +x "dist/${GOOS}-${GOARCH}/${BINARY_NAME}"; fi
 
       - name: Package
@@ -57,7 +57,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: my-artifact-${{ github.run_id }}
+          name: goplay-builds
           path: dist/*
 
   release:
