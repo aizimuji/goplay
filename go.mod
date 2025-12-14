@@ -3,6 +3,7 @@ module goplay
 go 1.25.1
 
 require (
+	github.com/atotto/clipboard v0.1.4
 	github.com/gdamore/tcell/v2 v2.13.2
 	github.com/rivo/tview v0.42.0
 )

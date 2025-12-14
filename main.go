@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/atotto/clipboard"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -27,6 +28,14 @@ func main() {
 	editor.SetTitle("Code (Not Saved)")
 	editor.SetBorder(true)
 
+	// Clipboard integration
+	editor.SetClipboard(func(text string) {
+		clipboard.WriteAll(text)
+	}, func() string {
+		text, _ := clipboard.ReadAll()
+		return text
+	})
+
 	// ... (Existing code)
 
 	// Output View (Right Pane)
@@ -42,11 +51,11 @@ func main() {
 
 	// Footer
 	footerLeft := tview.NewTextView().SetDynamicColors(true).SetText("Line: 1")
-	footerRight := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight).SetText("Press Alt+H to see all keys")
+	footerRight := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight).SetText("Press F1 / Alt+H to see all keys")
 
 	footer := tview.NewFlex().
 		AddItem(footerLeft, 0, 1, false).
-		AddItem(footerRight, 30, 1, false)
+		AddItem(footerRight, 40, 1, false)
 
 	// Window Split Ratio (50 means 50/50)
 	splitRatio := 50
@@ -99,10 +108,11 @@ func main() {
 		{"Ctrl+g", "Go to Line"},
 		{"Ctrl+p", "Settings"},
 		{"Ctrl+b", "Build App"},
-		{"Alt+[", "Shrink Left"},
-		{"Alt+]", "Grow Left"},
-		{"Ctrl+Shift+q", "Quit"},
-		{"Esc", "Close Help"},
+		{"F2 / Alt+[", "Shrink Left"},
+		{"F3 / Alt+]", "Grow Left"},
+		{"Ctrl+q", "Quit"},
+		{"Esc", "Close"},
+		{"F1 / Alt+h", "Help"},
 	}
 
 	for i, s := range shortcuts {
@@ -132,34 +142,34 @@ func main() {
 		// Debug logging
 		logDebug(fmt.Sprintf("Key: %v, Rune: %c, Mod: %v", event.Key(), event.Rune(), event.Modifiers()))
 
-		// Quit: Ctrl+Shift+Q
-		if event.Key() == tcell.KeyCtrlQ && event.Modifiers()&tcell.ModShift != 0 {
+		// Quit: Ctrl+Q
+		if event.Key() == tcell.KeyCtrlQ {
 			app.Stop()
 			return nil
 		}
 
-		// Help: Alt+H (Changed from Ctrl+H)
-		if (event.Rune() == 'h' || event.Rune() == 'H') && event.Modifiers()&tcell.ModAlt != 0 {
+		// Help: F1 or Alt+H
+		if event.Key() == tcell.KeyF1 || ((event.Rune() == 'h' || event.Rune() == 'H') && event.Modifiers()&tcell.ModAlt != 0) {
 			pages.AddPage("help", helpFlex, true, true)
 			app.SetFocus(helpTable)
 			return nil
 		}
 
 		// Resize Shortcuts
-		// Alt + [ : Shrink
-		if event.Key() == tcell.KeyCtrlLeftSq ||
-			(event.Rune() == '[' && event.Modifiers()&tcell.ModAlt != 0) ||
-			(event.Rune() == '[' && event.Modifiers()&tcell.ModCtrl != 0) { // Keep Ctrl attempt if mod works
+		// Shrink: F2 or Alt+[
+		if event.Key() == tcell.KeyF2 ||
+			(event.Key() == tcell.KeyCtrlLeftSq) || // Ctrl+[
+			(event.Rune() == '[' && event.Modifiers()&tcell.ModAlt != 0) {
 			if splitRatio > 10 {
 				splitRatio -= 5
 				refreshLayout()
 			}
 			return nil
 		}
-		// Alt + ] : Grow
-		if event.Key() == tcell.KeyCtrlRightSq ||
-			(event.Rune() == ']' && event.Modifiers()&tcell.ModAlt != 0) ||
-			(event.Rune() == ']' && event.Modifiers()&tcell.ModCtrl != 0) {
+		// Grow: F3 or Alt+]
+		if event.Key() == tcell.KeyF3 ||
+			(event.Key() == tcell.KeyCtrlRightSq) || // Ctrl+]
+			(event.Rune() == ']' && event.Modifiers()&tcell.ModAlt != 0) {
 			if splitRatio < 90 {
 				splitRatio += 5
 				refreshLayout()
@@ -208,6 +218,16 @@ func main() {
 			return nil
 		case tcell.KeyCtrlB:
 			buildExecutable(app, editor, outputView, pages)
+			return nil
+		case tcell.KeyCtrlC:
+			// Manually handle Copy to prevent app exit
+			if editor.HasFocus() {
+				selectedText, _, _ := editor.GetSelection()
+				if selectedText != "" {
+					clipboard.WriteAll(selectedText)
+					outputView.SetText("Copied to clipboard.")
+				}
+			}
 			return nil
 		}
 

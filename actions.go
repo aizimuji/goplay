@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -238,12 +239,16 @@ func newFile(app *tview.Application, editor *tview.TextArea, outputView *tview.T
 }
 
 func promptForInput(app *tview.Application, pages *tview.Pages, title string, initialText string, callback func(string)) {
+	lastFocus := app.GetFocus()
+
 	form := tview.NewForm().
 		AddInputField("Input", initialText, 30, nil, nil).
 		AddButton("OK", nil).
 		AddButton("Cancel", func() {
 			pages.RemovePage("prompt")
-			app.SetFocus(app.GetFocus())
+			if lastFocus != nil {
+				app.SetFocus(lastFocus)
+			}
 		})
 
 	form.GetButton(0).SetSelectedFunc(func() {
@@ -252,9 +257,23 @@ func promptForInput(app *tview.Application, pages *tview.Pages, title string, in
 			callback(text)
 		}
 		pages.RemovePage("prompt")
+		if lastFocus != nil {
+			app.SetFocus(lastFocus)
+		}
 	})
 
 	form.SetBorder(true).SetTitle(title).SetTitleAlign(tview.AlignLeft)
+
+	form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEsc {
+			pages.RemovePage("prompt")
+			if lastFocus != nil {
+				app.SetFocus(lastFocus)
+			}
+			return nil
+		}
+		return event
+	})
 
 	flex := tview.NewFlex().
 		AddItem(nil, 0, 1, false).
