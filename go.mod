@@ -1,4 +1,4 @@
-module goplay
+module github.com/aizimuji/goplay
 
 go 1.25.1
 
