@@ -23,5 +23,20 @@ new feature:
 
 
 new feature:
-    - Ctrl + -, 将窗口分割线左移, 让左边窗口变小, 右边变大
-    - Ctrl + =, 将窗口分割线右移, 让左边窗口变大, 右边变小
+    - Alt + [, 将窗口分割线左移, 让左边窗口变小, 右边变大
+    - Alt + ], 将窗口分割线右移, 让左边窗口变大, 右边变小
+    - Alt + h, 显示帮助窗口, 显示所有快捷键
+
+new feature:
+    - 添加一个程序默认模板, 当按`Ctrl+t`, 检查当前cwd 是否有`.template`文件, 如果有, 则加载该文件到编辑器, 如果没有, 则使用默认模板
+    ```
+package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	fmt.Println("Hello Goplay")
+}
+    ```

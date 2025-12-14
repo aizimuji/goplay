@@ -274,20 +274,40 @@ func loadTemplate(app *tview.Application, editor *tview.TextArea, outputView *tv
 		templateFile = filepath.Join(workingDir, ".template")
 	}
 
+	var message string
 	content, err := os.ReadFile(templateFile)
 	if err != nil {
+		// Try purely local .template if workingDir specific one failed
 		if workingDir != "" {
 			content, err = os.ReadFile(".template")
+			if err == nil {
+				absPath, _ := filepath.Abs(".template")
+				message = fmt.Sprintf("Loaded template from %s", absPath)
+			}
 		}
+
 		if err != nil {
-			outputView.SetText(fmt.Sprintf("Error loading template: %v", err))
-			return
+			// Fallback to default template if file not found
+			content = []byte(`package main
+
+import (
+	"fmt"
+)
+
+func main() {
+	fmt.Println("Hello Goplay")
+}
+`)
+			message = "Loaded default template"
 		}
+	} else {
+		absPath, _ := filepath.Abs(templateFile)
+		message = fmt.Sprintf("Loaded template from %s", absPath)
 	}
 
 	saveSnapshot(editor)
 	editor.SetText(string(content), false)
-	outputView.SetText("Loaded template.")
+	outputView.SetText(message)
 
 	isModified = true
 	updateTitle(editor)
