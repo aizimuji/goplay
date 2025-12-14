@@ -3,7 +3,7 @@
 [English](README.md)
 
 **GoPlay CLI** is a terminal-based Go Playground that allows you to write, format, compile, and run Go code directly from your command line interface. It features a clean, split-pane TUI (Text User Interface) built with [tview](https://github.com/rivo/tview), offering a seamless coding experience without leaving your terminal.
-
+![](./files/goplay_screen1.png)
 ## 功能特性
 
 *   **分屏界面**: 左侧编辑代码，右侧查看输出。
