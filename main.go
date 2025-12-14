@@ -10,6 +10,14 @@ import (
 )
 
 func main() {
+	// Initialize working directory
+	var err error
+	workingDir, err = os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error getting CWD: %v\n", err)
+		// Non-fatal, just continue with empty workingDir
+	}
+
 	app := tview.NewApplication()
 	pages := tview.NewPages()
 
@@ -19,10 +27,7 @@ func main() {
 	editor.SetTitle("Code (Not Saved)")
 	editor.SetBorder(true)
 
-	// Track changes for Undo/Redo and Title
-	editor.SetChangedFunc(func() {
-		saveSnapshot(editor)
-	})
+	// ... (Existing code)
 
 	// Output View (Right Pane)
 	outputView := tview.NewTextView()
@@ -37,16 +42,24 @@ func main() {
 
 	// Footer
 	footerLeft := tview.NewTextView().SetDynamicColors(true).SetText("Line: 1")
-	footerCenter := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter).SetText("Press Ctrl+H to see all keys")
+	footerRight := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight).SetText("Press Alt+H to see all keys")
 
 	footer := tview.NewFlex().
-		AddItem(footerLeft, 15, 1, false).
-		AddItem(footerCenter, 0, 1, false)
+		AddItem(footerLeft, 0, 1, false).
+		AddItem(footerRight, 30, 1, false)
+
+	// Window Split Ratio (50 means 50/50)
+	splitRatio := 50
 
 	// Layout
-	mainFlex := tview.NewFlex().
-		AddItem(editor, 0, 1, true).
-		AddItem(outputView, 0, 1, false)
+	mainFlex := tview.NewFlex()
+	// Function to refresh layout based on splitRatio
+	refreshLayout := func() {
+		mainFlex.Clear()
+		mainFlex.AddItem(editor, 0, splitRatio, true)
+		mainFlex.AddItem(outputView, 0, 100-splitRatio, false)
+	}
+	refreshLayout() // Initial layout
 
 	layout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(mainFlex, 0, 1, true).
@@ -55,10 +68,17 @@ func main() {
 	pages.AddPage("main", layout, true, true)
 
 	// Update cursor position in footer
-	editor.SetMovedFunc(func() {
+	updateFooter := func() {
 		row, _, _, _ := editor.GetCursor()
-		footerLeft.SetText(fmt.Sprintf("Line: %d", row+1))
-	})
+		cwdText := ""
+		if workingDir != "" {
+			cwdText = fmt.Sprintf("  [CWD: %s]", workingDir)
+		}
+		footerLeft.SetText(fmt.Sprintf("Line: %d%s", row+1, cwdText))
+	}
+	editor.SetMovedFunc(updateFooter)
+	// Initial update
+	updateFooter()
 
 	// Help Popup
 	helpTable := tview.NewTable().
@@ -76,6 +96,11 @@ func main() {
 		{"Ctrl+l", "Clear Code"},
 		{"Ctrl+z", "Undo"},
 		{"Ctrl+y", "Redo"},
+		{"Ctrl+g", "Go to Line"},
+		{"Ctrl+p", "Settings"},
+		{"Ctrl+b", "Build App"},
+		{"Alt+[", "Shrink Left"},
+		{"Alt+]", "Grow Left"},
 		{"Ctrl+Shift+q", "Quit"},
 		{"Esc", "Close Help"},
 	}
@@ -91,7 +116,7 @@ func main() {
 		AddItem(nil, 0, 1, false).
 		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
 			AddItem(nil, 0, 1, false).
-			AddItem(helpTable, 16, 1, true).
+			AddItem(helpTable, 18, 1, true).
 			AddItem(nil, 0, 1, false), 50, 1, true).
 		AddItem(nil, 0, 1, false)
 
@@ -103,8 +128,6 @@ func main() {
 		}
 		return event
 	})
-
-	// Global Shortcuts
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		// Debug logging
 		logDebug(fmt.Sprintf("Key: %v, Rune: %c, Mod: %v", event.Key(), event.Rune(), event.Modifiers()))
@@ -115,10 +138,32 @@ func main() {
 			return nil
 		}
 
-		// Help: Ctrl+H
-		if event.Key() == tcell.KeyCtrlH {
+		// Help: Alt+H (Changed from Ctrl+H)
+		if (event.Rune() == 'h' || event.Rune() == 'H') && event.Modifiers()&tcell.ModAlt != 0 {
 			pages.AddPage("help", helpFlex, true, true)
 			app.SetFocus(helpTable)
+			return nil
+		}
+
+		// Resize Shortcuts
+		// Alt + [ : Shrink
+		if event.Key() == tcell.KeyCtrlLeftSq ||
+			(event.Rune() == '[' && event.Modifiers()&tcell.ModAlt != 0) ||
+			(event.Rune() == '[' && event.Modifiers()&tcell.ModCtrl != 0) { // Keep Ctrl attempt if mod works
+			if splitRatio > 10 {
+				splitRatio -= 5
+				refreshLayout()
+			}
+			return nil
+		}
+		// Alt + ] : Grow
+		if event.Key() == tcell.KeyCtrlRightSq ||
+			(event.Rune() == ']' && event.Modifiers()&tcell.ModAlt != 0) ||
+			(event.Rune() == ']' && event.Modifiers()&tcell.ModCtrl != 0) {
+			if splitRatio < 90 {
+				splitRatio += 5
+				refreshLayout()
+			}
 			return nil
 		}
 
@@ -154,6 +199,15 @@ func main() {
 			return nil
 		case tcell.KeyCtrlT:
 			loadTemplate(app, editor, outputView)
+			return nil
+		case tcell.KeyCtrlG:
+			jumpToLine(app, editor, outputView, pages)
+			return nil
+		case tcell.KeyCtrlP:
+			showSettings(app, editor, outputView, pages, updateFooter)
+			return nil
+		case tcell.KeyCtrlB:
+			buildExecutable(app, editor, outputView, pages)
 			return nil
 		}
 

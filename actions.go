@@ -5,18 +5,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/rivo/tview"
 )
 
 // Global state
 var currentFilename string = ""
+var workingDir string = ""
 var isModified bool = false
 
 // Undo/Redo
 type EditorState struct {
 	Text string
-	// Cursor position could be added if TextArea exposes it easily
 }
 
 var undoStack []EditorState
@@ -42,12 +45,11 @@ func saveSnapshot(editor *tview.TextArea) {
 	if isUndoingOrRedoing {
 		return
 	}
-	// Limit stack size if needed, e.g. 1000
 	if len(undoStack) > 1000 {
 		undoStack = undoStack[1:]
 	}
 	undoStack = append(undoStack, EditorState{Text: editor.GetText()})
-	redoStack = []EditorState{} // Clear redo stack on new change
+	redoStack = []EditorState{}
 
 	isModified = true
 	updateTitle(editor)
@@ -62,10 +64,8 @@ func undo(app *tview.Application, editor *tview.TextArea, outputView *tview.Text
 	isUndoingOrRedoing = true
 	defer func() { isUndoingOrRedoing = false }()
 
-	// Current state goes to redo stack
 	redoStack = append(redoStack, EditorState{Text: editor.GetText()})
 
-	// Pop from undo stack
 	lastState := undoStack[len(undoStack)-1]
 	undoStack = undoStack[:len(undoStack)-1]
 
@@ -85,10 +85,8 @@ func redo(app *tview.Application, editor *tview.TextArea, outputView *tview.Text
 	isUndoingOrRedoing = true
 	defer func() { isUndoingOrRedoing = false }()
 
-	// Current state goes to undo stack
 	undoStack = append(undoStack, EditorState{Text: editor.GetText()})
 
-	// Pop from redo stack
 	nextState := redoStack[len(redoStack)-1]
 	redoStack = redoStack[:len(redoStack)-1]
 
@@ -102,7 +100,6 @@ func redo(app *tview.Application, editor *tview.TextArea, outputView *tview.Text
 func runCode(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView) {
 	outputView.SetText("Running...")
 
-	// Create a temporary file
 	tmpDir := os.TempDir()
 	tmpFile := filepath.Join(tmpDir, "goplay_run.go")
 
@@ -125,7 +122,6 @@ func runCode(app *tview.Application, editor *tview.TextArea, outputView *tview.T
 func compileCode(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView) {
 	outputView.SetText("Compiling...")
 
-	// Create a temporary file
 	tmpDir := os.TempDir()
 	tmpFile := filepath.Join(tmpDir, "goplay_build.go")
 
@@ -135,7 +131,6 @@ func compileCode(app *tview.Application, editor *tview.TextArea, outputView *tvi
 		return
 	}
 
-	// Build to a temporary executable
 	exeFile := filepath.Join(tmpDir, "goplay_run.exe")
 	cmd := exec.Command("go", "build", "-o", exeFile, tmpFile)
 	output, err := cmd.CombinedOutput()
@@ -148,10 +143,8 @@ func compileCode(app *tview.Application, editor *tview.TextArea, outputView *tvi
 }
 
 func formatCode(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView) {
-	// Snapshot before format
 	saveSnapshot(editor)
 
-	// Create a temporary file
 	tmpDir := os.TempDir()
 	tmpFile := filepath.Join(tmpDir, "goplay_fmt.go")
 
@@ -169,7 +162,6 @@ func formatCode(app *tview.Application, editor *tview.TextArea, outputView *tvie
 		return
 	}
 
-	// Read back the formatted file
 	formatted, err := os.ReadFile(tmpFile)
 	if err != nil {
 		outputView.SetText(fmt.Sprintf("Error reading formatted file: %v", err))
@@ -179,17 +171,26 @@ func formatCode(app *tview.Application, editor *tview.TextArea, outputView *tvie
 	editor.SetText(string(formatted), false)
 	outputView.SetText("Formatted code.")
 
-	// Formatting might change content, but semantically it's just formatting.
-	// However, we treat it as modification.
 	isModified = true
 	updateTitle(editor)
 }
 
+func resolvePath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	if workingDir != "" {
+		return filepath.Join(workingDir, path)
+	}
+	return path
+}
+
 func saveFile(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView, pages *tview.Pages) {
 	if currentFilename == "" {
-		promptForFilename(app, pages, "Save as:", func(filename string) {
-			currentFilename = filename
-			saveFileContent(app, editor, outputView, filename)
+		promptForInput(app, pages, "Save as:", "", func(filename string) {
+			fullPath := resolvePath(filename)
+			currentFilename = fullPath
+			saveFileContent(app, editor, outputView, fullPath)
 		})
 	} else {
 		saveFileContent(app, editor, outputView, currentFilename)
@@ -208,19 +209,18 @@ func saveFileContent(app *tview.Application, editor *tview.TextArea, outputView 
 }
 
 func openFile(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView, pages *tview.Pages) {
-	promptForFilename(app, pages, "Open file:", func(filename string) {
-		content, err := os.ReadFile(filename)
+	promptForInput(app, pages, "Open file:", "", func(filename string) {
+		fullPath := resolvePath(filename)
+		content, err := os.ReadFile(fullPath)
 		if err != nil {
 			outputView.SetText(fmt.Sprintf("Error opening file: %v", err))
 			return
 		}
-		// Snapshot before opening new file? Or maybe clear history?
-		// Let's snapshot so we can undo opening a file if we want (restore previous content)
 		saveSnapshot(editor)
 
-		currentFilename = filename
+		currentFilename = fullPath
 		editor.SetText(string(content), false)
-		outputView.SetText(fmt.Sprintf("Opened %s", filename))
+		outputView.SetText(fmt.Sprintf("Opened %s", fullPath))
 
 		isModified = false
 		updateTitle(editor)
@@ -237,26 +237,25 @@ func newFile(app *tview.Application, editor *tview.TextArea, outputView *tview.T
 	updateTitle(editor)
 }
 
-func promptForFilename(app *tview.Application, pages *tview.Pages, title string, callback func(string)) {
-	// Re-implementing prompt with a custom Flex to capture input
+func promptForInput(app *tview.Application, pages *tview.Pages, title string, initialText string, callback func(string)) {
 	form := tview.NewForm().
-		AddInputField("Filename", "", 30, nil, nil).
+		AddInputField("Input", initialText, 30, nil, nil).
 		AddButton("OK", nil).
 		AddButton("Cancel", func() {
 			pages.RemovePage("prompt")
+			app.SetFocus(app.GetFocus())
 		})
 
 	form.GetButton(0).SetSelectedFunc(func() {
-		filename := form.GetFormItem(0).(*tview.InputField).GetText()
-		if filename != "" {
-			callback(filename)
+		text := form.GetFormItem(0).(*tview.InputField).GetText()
+		if text != "" {
+			callback(text)
 		}
 		pages.RemovePage("prompt")
 	})
 
 	form.SetBorder(true).SetTitle(title).SetTitleAlign(tview.AlignLeft)
 
-	// Center the form
 	flex := tview.NewFlex().
 		AddItem(nil, 0, 1, false).
 		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
@@ -270,12 +269,20 @@ func promptForFilename(app *tview.Application, pages *tview.Pages, title string,
 }
 
 func loadTemplate(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView) {
-	// Check for .template file in current directory
 	templateFile := ".template"
+	if workingDir != "" {
+		templateFile = filepath.Join(workingDir, ".template")
+	}
+
 	content, err := os.ReadFile(templateFile)
 	if err != nil {
-		outputView.SetText(fmt.Sprintf("Error loading template: %v", err))
-		return
+		if workingDir != "" {
+			content, err = os.ReadFile(".template")
+		}
+		if err != nil {
+			outputView.SetText(fmt.Sprintf("Error loading template: %v", err))
+			return
+		}
 	}
 
 	saveSnapshot(editor)
@@ -284,4 +291,76 @@ func loadTemplate(app *tview.Application, editor *tview.TextArea, outputView *tv
 
 	isModified = true
 	updateTitle(editor)
+}
+
+func jumpToLine(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView, pages *tview.Pages) {
+	promptForInput(app, pages, "Go to Line:", "", func(input string) {
+		lineNum, err := strconv.Atoi(input)
+		if err != nil {
+			outputView.SetText(fmt.Sprintf("Invalid line number: %s", input))
+			return
+		}
+
+		targetRow := lineNum - 1
+		if targetRow < 0 {
+			targetRow = 0
+		}
+
+		text := editor.GetText()
+		lines := strings.Split(text, "\n")
+
+		if targetRow >= len(lines) {
+			targetRow = len(lines) - 1
+		}
+
+		editor.SetOffset(targetRow, 0)
+
+		offset := 0
+		for i := 0; i < targetRow; i++ {
+			offset += len(lines[i]) + 1
+		}
+
+		editor.Select(offset, offset)
+		outputView.SetText(fmt.Sprintf("Jumped to line %d", targetRow+1))
+	})
+}
+
+func showSettings(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView, pages *tview.Pages, updateFooter func()) {
+	promptForInput(app, pages, "Set Working Directory:", workingDir, func(input string) {
+		workingDir = input
+		outputView.SetText(fmt.Sprintf("Working Directory set to: %s", workingDir))
+		updateFooter()
+	})
+}
+
+func buildExecutable(app *tview.Application, editor *tview.TextArea, outputView *tview.TextView, pages *tview.Pages) {
+	if isModified || currentFilename == "" {
+		outputView.SetText("Please save the file before building.")
+		return
+	}
+
+	baseName := filepath.Base(currentFilename)
+	ext := filepath.Ext(baseName)
+	defaultOutput := strings.TrimSuffix(baseName, ext)
+	if runtime.GOOS == "windows" {
+		defaultOutput += ".exe"
+	}
+
+	promptForInput(app, pages, "Build Output Name:", defaultOutput, func(outputName string) {
+		outputView.SetText("Building executable...")
+
+		outputPath := resolvePath(outputName)
+
+		cmd := exec.Command("go", "build", "-o", outputPath, currentFilename)
+		if workingDir != "" {
+			cmd.Dir = workingDir
+		}
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			outputView.SetText(fmt.Sprintf("Build Error:\n%s\n%v", string(output), err))
+		} else {
+			outputView.SetText(fmt.Sprintf("Successfully built: %s", outputPath))
+		}
+	})
 }
