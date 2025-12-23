@@ -20,6 +20,7 @@ var isModified bool = false
 
 // Undo/Redo
 type EditorState struct {
+	
 	Text string
 }
 

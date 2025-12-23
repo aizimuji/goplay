@@ -40,3 +40,43 @@ func main() {
 	fmt.Println("Hello Goplay")
 }
     ```
+
+
+goplay改进 - v0.3.0
+
+1. 增加参数处理
+- `goplay file.go` 如果是文件, 则直接打开该文件
+- `goplay d:\dev\go` 如果是目录, 则打开该目录, 并将当前工作目录设置为该目录
+- `goplay .` 则打开当前目录
+
+2. 改进快捷键, 增加更多F键, 取消所有alt键, 具体如下
+- `Alt + [` Or F2 -> F2
+- `Alt + ]` Or F3 -> F3
+- `Alt + h` Or F1 -> F1
+- `Ctrl + t` -> `Ctrl + t` Or F4
+- `Ctrl + r` -> `Ctrl + r` Or F5
+- `Ctrl + k` -> `Ctrl + k` Or F6
+- `Ctrl + b` -> `Ctrl + b` Or F7
+- `Ctrl + q` -> `Ctrl + q` Or F12
+
+3. 增加一些简单自动格式化功能
+- 按回车后保持和上一行一致缩进
+- 请建议其他常用命令行格式化功能
+
+goplay v0.3.0 fix
+bugs
+- main screen bottom right - should be `Press F1 to see all keys`
+- auto format not work, when press enter, cursor go to top of window
+
+enhance
+- add F9 -> `Ctrl + p`
+- add a pop up, use F10 with `about goplay`, with following
+```
+goplay v0.3.0
+command line go playground
+
+author: your name
+license: MIT
+
+```
+- 

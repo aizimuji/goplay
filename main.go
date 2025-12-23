@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/atotto/clipboard"
 	"github.com/gdamore/tcell/v2"
@@ -16,7 +17,31 @@ func main() {
 	workingDir, err = os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting CWD: %v\n", err)
-		// Non-fatal, just continue with empty workingDir
+	}
+
+	// 1. Parameter Handling
+	initialFileContent := ""
+	if len(os.Args) > 1 {
+		arg := os.Args[1]
+		stat, err := os.Stat(arg)
+		if err == nil {
+			if stat.IsDir() {
+				// If directory, change CWD
+				os.Chdir(arg)
+				workingDir, _ = os.Getwd()
+			} else {
+				// If file, prepare to open
+				content, err := os.ReadFile(arg)
+				if err == nil {
+					initialFileContent = string(content)
+					currentFilename, _ = filepath.Abs(arg)
+					// If the file is in a different dir, switch CWD to it?
+					// The requirement says:
+					// "goplay d:\dev\go 如果是目录, 则打开该目录, 并将当前工作目录设置为该目录"
+					// "goplay file.go 如果是文件, 则直接打开该文件" (Does not specify changing CWD, but usually editors do or don't. Let's stick to CWD is where you launched it, unless you opened a dir)
+				}
+			}
+		}
 	}
 
 	app := tview.NewApplication()
@@ -36,7 +61,12 @@ func main() {
 		return text
 	})
 
-	// ... (Existing code)
+	if initialFileContent != "" {
+		editor.SetText(initialFileContent, false)
+		// Update title will be handled by logic inside actions or initial update
+	}
+
+	// 不拦截编辑器的键盘输入，让 tview 自然处理
 
 	// Output View (Right Pane)
 	outputView := tview.NewTextView()
@@ -51,7 +81,7 @@ func main() {
 
 	// Footer
 	footerLeft := tview.NewTextView().SetDynamicColors(true).SetText("Line: 1")
-	footerRight := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight).SetText("Press F1 / Alt+H to see all keys")
+	footerRight := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight).SetText("Press F1 to see all keys")
 
 	footer := tview.NewFlex().
 		AddItem(footerLeft, 0, 1, false).
@@ -95,24 +125,26 @@ func main() {
 		SetSelectable(false, false)
 
 	shortcuts := []struct{ Key, Desc string }{
-		{"Ctrl+r", "Run Code"},
-		{"Ctrl+k", "Compile Code"},
+		{"Ctrl+r / F5", "Run Code"},
+		{"Ctrl+k / F6", "Compile Code"},
 		{"Ctrl+f", "Format Code"},
 		{"Ctrl+s", "Save File"},
 		{"Ctrl+o", "Open File"},
 		{"Ctrl+n", "New File"},
-		{"Ctrl+t", "Load Template"},
+		{"Ctrl+t / F4", "Load Template"},
 		{"Ctrl+l", "Clear Code"},
 		{"Ctrl+z", "Undo"},
 		{"Ctrl+y", "Redo"},
 		{"Ctrl+g", "Go to Line"},
 		{"Ctrl+p", "Settings"},
-		{"Ctrl+b", "Build App"},
-		{"F2 / Alt+[", "Shrink Left"},
-		{"F3 / Alt+]", "Grow Left"},
-		{"Ctrl+q", "Quit"},
+		{"Ctrl+b / F7", "Build App"},
+		{"F2", "Shrink Left"},
+		{"F3", "Grow Left"},
+		{"Ctrl+q / F12", "Quit"},
 		{"Esc", "Close"},
-		{"F1 / Alt+h", "Help"},
+		{"F1", "Help"},
+		{"Ctrl+p / F9", "Settings"},
+		{"F10", "About"},
 	}
 
 	for i, s := range shortcuts {
@@ -142,34 +174,46 @@ func main() {
 		// Debug logging
 		logDebug(fmt.Sprintf("Key: %v, Rune: %c, Mod: %v", event.Key(), event.Rune(), event.Modifiers()))
 
-		// Quit: Ctrl+Q
-		if event.Key() == tcell.KeyCtrlQ {
+		// Quit: Ctrl+Q, F12
+		if event.Key() == tcell.KeyCtrlQ || event.Key() == tcell.KeyF12 {
 			app.Stop()
 			return nil
 		}
 
-		// Help: F1 or Alt+H
-		if event.Key() == tcell.KeyF1 || ((event.Rune() == 'h' || event.Rune() == 'H') && event.Modifiers()&tcell.ModAlt != 0) {
+		// Help: F1
+		if event.Key() == tcell.KeyF1 {
 			pages.AddPage("help", helpFlex, true, true)
 			app.SetFocus(helpTable)
 			return nil
 		}
 
+		// About: F10
+		if event.Key() == tcell.KeyF10 {
+			version := "v0.3.0"
+			authorName := "aizimuji"
+			modal := tview.NewModal().
+				SetText(fmt.Sprintf("goplay %s\ncommand line go playground\n\nauthor: %s\nlicense: MIT", version, authorName)).
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+					pages.RemovePage("about")
+					app.SetFocus(editor)
+				})
+			pages.AddPage("about", modal, true, true)
+			app.SetFocus(modal)
+			return nil
+		}
+
 		// Resize Shortcuts
-		// Shrink: F2 or Alt+[
-		if event.Key() == tcell.KeyF2 ||
-			(event.Key() == tcell.KeyCtrlLeftSq) || // Ctrl+[
-			(event.Rune() == '[' && event.Modifiers()&tcell.ModAlt != 0) {
+		// Shrink: F2
+		if event.Key() == tcell.KeyF2 {
 			if splitRatio > 10 {
 				splitRatio -= 5
 				refreshLayout()
 			}
 			return nil
 		}
-		// Grow: F3 or Alt+]
-		if event.Key() == tcell.KeyF3 ||
-			(event.Key() == tcell.KeyCtrlRightSq) || // Ctrl+]
-			(event.Rune() == ']' && event.Modifiers()&tcell.ModAlt != 0) {
+		// Grow: F3
+		if event.Key() == tcell.KeyF3 {
 			if splitRatio < 90 {
 				splitRatio += 5
 				refreshLayout()
@@ -179,10 +223,10 @@ func main() {
 
 		// Map other shortcuts
 		switch event.Key() {
-		case tcell.KeyCtrlR:
+		case tcell.KeyCtrlR, tcell.KeyF5:
 			runCode(app, editor, outputView)
 			return nil
-		case tcell.KeyCtrlK: // Build
+		case tcell.KeyCtrlK, tcell.KeyF6: // Check/Compile
 			compileCode(app, editor, outputView)
 			return nil
 		case tcell.KeyCtrlF:
@@ -207,16 +251,16 @@ func main() {
 		case tcell.KeyCtrlY:
 			redo(app, editor, outputView)
 			return nil
-		case tcell.KeyCtrlT:
+		case tcell.KeyCtrlT, tcell.KeyF4:
 			loadTemplate(app, editor, outputView)
 			return nil
 		case tcell.KeyCtrlG:
 			jumpToLine(app, editor, outputView, pages)
 			return nil
-		case tcell.KeyCtrlP:
+		case tcell.KeyCtrlP, tcell.KeyF9:
 			showSettings(app, editor, outputView, pages, updateFooter)
 			return nil
-		case tcell.KeyCtrlB:
+		case tcell.KeyCtrlB, tcell.KeyF7:
 			buildExecutable(app, editor, outputView, pages)
 			return nil
 		case tcell.KeyCtrlC:
@@ -237,6 +281,70 @@ func main() {
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
 		panic(err)
 	}
+}
+
+func insertAtCursor(editor *tview.TextArea, text string) {
+	row, screenCol, _, _ := editor.GetCursor()
+	content := editor.GetText()
+
+	// 标准化换行符为 \n
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+
+	lines := strings.Split(content, "\n")
+
+	// Calculate byte offset to insertion point
+	offset := 0
+	if row < len(lines) {
+		for i := 0; i < row; i++ {
+			offset += len(lines[i]) + 1 // +1 for newline
+		}
+
+		line := lines[row]
+
+		// 将屏幕列位置转换为字节索引
+		// Tab 在屏幕上显示为多个空格（通常到下一个 4 的倍数位置）
+		byteIndex := 0
+		currentScreenCol := 0
+		for i, r := range line {
+			if currentScreenCol >= screenCol {
+				byteIndex = i
+				break
+			}
+			if r == '\t' {
+				// Tab 跳到下一个 4 的倍数
+				currentScreenCol = ((currentScreenCol / 4) + 1) * 4
+			} else {
+				currentScreenCol++
+			}
+			byteIndex = i + len(string(r)) // 移动到下一个字符
+		}
+
+		// 如果 screenCol 超过了行尾，byteIndex 就是整行长度
+		if currentScreenCol < screenCol {
+			byteIndex = len(line)
+		}
+
+		offset += byteIndex
+	} else {
+		offset = len(content)
+	}
+
+	if offset > len(content) {
+		offset = len(content)
+	}
+
+	prefix := content[:offset]
+	suffix := content[offset:]
+	newContent := prefix + text + suffix
+
+	editor.SetText(newContent, false)
+
+	// 计算光标应该在的新位置
+	newOffset := offset + len(text)
+
+	// 只用 Select 定位光标，不滚动视图
+	editor.Select(newOffset, newOffset)
 }
 
 func logDebug(msg string) {
